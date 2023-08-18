@@ -100,7 +100,7 @@ static void putx(u64 x) {
     puts(buf + i);
 }
 
-struct ACPISDTHeader {
+struct sdt_header {
     char Signature[4];
     u32 Length;
     u8 Revision;
@@ -110,11 +110,21 @@ struct ACPISDTHeader {
     u32 OEMRevision;
     u32 CreatorID;
     u32 CreatorRevision;
+};
 
+struct rsdt_header {
+    struct sdt_header sdt;
     u32 PointerToOtherSDT[];
 };
 
-static void print_sdt(struct ACPISDTHeader const *p) {
+struct madt_header {
+    struct sdt_header sdt;
+    u32 LocalAPICAddress;
+    u32 Flags;
+    u8 Entries[];
+};
+
+static void print_sdt(struct sdt_header const *p) {
     puts("  sdt (");
     putx((u64)p);
     puts("):\n");
@@ -145,9 +155,68 @@ static void print_sdt(struct ACPISDTHeader const *p) {
     puts("    creator_revision: ");
     putu(p->CreatorRevision);
     putc('\n');
+
+    if (*(u32 *)&p->Signature == 0x43495041) {  // APIC
+        struct madt_header const *q = (struct madt_header const *)p;
+        puts("\n");
+        puts("    local_apic_address: ");
+        putx(q->LocalAPICAddress);
+        putc('\n');
+        puts("    flags: ");
+        putx(q->Flags);
+        putc('\n');
+
+        u8 const *entries = q->Entries;
+        while (entries - (u8 *)p < p->Length) {
+            puts("    entry: ");
+            putu(entries[0]);
+            putc(' ');
+            putu(entries[1]);
+            putc('\n');
+
+            if (entries[0] == 0) {
+                puts("      apic processor id: ");
+                putu(entries[2]);
+                putc('\n');
+                puts("      apic id: ");
+                putu(entries[3]);
+                putc('\n');
+                puts("      flags: ");
+                putx(*(u32 *)(entries + 4));
+                putc('\n');
+            }
+            if (entries[0] == 1) {
+                puts("      io apic id: ");
+                putu(entries[2]);
+                putc('\n');
+                puts("      io apic address: ");
+                putx(*(u32 *)(entries + 4));
+                putc('\n');
+                puts("      global system interrupt base: ");
+                putx(*(u32 *)(entries + 8));
+                putc('\n');
+            }
+            if (entries[0] == 2) {
+                puts("      bus source: ");
+                putu(entries[2]);
+                putc('\n');
+                puts("      irq source: ");
+                putu(entries[3]);
+                putc('\n');
+                puts("      global system interrupt: ");
+                putx(*(u32 *)(entries + 4));
+                putc('\n');
+                puts("      flags: ");
+                putx(*(u16 *)(entries + 8));
+                putc('\n');
+            }
+
+            entries += entries[1];
+        }
+    }
 }
 
-static void print_multiboot_info(char const *p) {
+static void print_multiboot_info(u8 const *p) {
     puts("Multiboot info (");
     putx((u64)p);
     puts("):\n");
@@ -254,12 +323,12 @@ static void print_multiboot_info(char const *p) {
             putx(rsdt_address);
             putc('\n');
 
-            struct ACPISDTHeader const *rsdt = (void *)(u64)rsdt_address;
-            print_sdt(rsdt);
+            struct rsdt_header const *rsdt = (void *)(u64)rsdt_address;
+            print_sdt((void *)rsdt);
 
-            u32 count = (rsdt->Length - sizeof(*rsdt)) / 4;
+            u32 count = (rsdt->sdt.Length - sizeof(*rsdt)) / 4;
             for (u32 j = 0; j < count; ++j) {
-                print_sdt(rsdt->PointerToOtherSDT[j]);
+                print_sdt((void *)(u64)rsdt->PointerToOtherSDT[j]);
             }
         }
         if (tag_type == 21) {
@@ -399,24 +468,54 @@ __attribute__((interrupt)) static void timer_handler(
     outb(0x20, 0x20);
 }
 
-__attribute__((noreturn)) void init(char const *const p) {
-    u32 total_size = *(u32 *)p;
+static u8 *local_apic_address;
+
+static void init_apic(void) {
+    // reset apic timer
+    *(u32 *)(local_apic_address + 0x380) = 0x10000;
+    *(u32 *)(local_apic_address + 0x320) = 0x10020;
+}
+
+static void init_acpi(struct rsdt_header const *rsdt) {
+    u32 count = (rsdt->sdt.Length - sizeof(*rsdt)) / 4;
+    for (u32 j = 0; j < count; ++j) {
+        struct sdt_header const *sdt = (void *)(u64)rsdt->PointerToOtherSDT[j];
+
+        if (*(u32 *)&sdt->Signature == 0x43495041) {  // APIC
+            struct madt_header const *q = (struct madt_header const *)sdt;
+            local_apic_address = (void *)(u64)q->LocalAPICAddress;
+            init_apic();
+        }
+    }
+}
+
+static void init(u8 const *const mbi) {
+    u32 total_size = *(u32 *)mbi;
     for (u32 i = 8; i < total_size;) {
-        u32 tag_type = *(u32 *)(p + i);
-        u32 tag_size = *(u32 *)(p + i + 4);
+        u32 tag_type = *(u32 *)(mbi + i);
+        u32 tag_size = *(u32 *)(mbi + i + 4);
         if (tag_type == 0) {
             break;
         }
         if (tag_type == 8) {
-            init_screen(p + i + 8);
+            init_screen(mbi + i + 8);
             set_chosen_row(0);
+        }
+        if (tag_type == 14) {
+            u32 rsdt_address = *(u32 *)(mbi + i + 24);
+            struct rsdt_header const *rsdt = (void *)(u64)rsdt_address;
+            init_acpi(rsdt);
         }
         i = (i + tag_size + 7) & (u32)(~7);
     }
+}
+
+__attribute__((noreturn)) void kmain(u8 const *const p) {
+    init(p);
 
     print_multiboot_info(p);
 
-    for (u32 i = 0; i < 256; ++i) set_idt(&idt[i], nop_handler);
+    // for (u32 i = 0; i < 256; ++i) set_idt(&idt[i], nop_handler);
     set_idt(&idt[8], timer_handler);
     set_idt(&idt[9], keyboard_interrupt_handler);
 

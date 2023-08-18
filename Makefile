@@ -1,5 +1,5 @@
 CFLAGS := -m64 -mgeneral-regs-only -mno-red-zone -Wall
-QEMU_FLAGS := -enable-kvm -cpu host -display gtk,zoom-to-fit=on
+QEMU_FLAGS := -enable-kvm -cpu host -display gtk,zoom-to-fit=on -smp cores=2
 
 run_iso: myos.iso
 	qemu-system-x86_64 $(QEMU_FLAGS) -cdrom myos.iso

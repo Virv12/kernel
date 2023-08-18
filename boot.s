@@ -46,7 +46,7 @@ terminating_tag:
 multiboot2_header.size: equ $ - multiboot2_header
 
 section .text
-extern init
+extern kmain
 
 global _start
 align 16
@@ -130,7 +130,7 @@ _start:
     mov ss, ax
 
     pop edi
-    jmp GDT.code:init
+    jmp GDT.code:kmain
 
 error:
     hlt
