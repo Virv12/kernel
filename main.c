@@ -374,11 +374,6 @@ static void set_idt(
     id->zero = 0;
 }
 
-__attribute__((interrupt)) static void nop_handler(
-    struct interrupt_frame *frame) {
-    outb(0x20, 0x20);
-}
-
 __attribute__((interrupt)) static void keyboard_interrupt_handler(
     struct interrupt_frame *frame) {
     static char const shift_table[256] = {
@@ -458,16 +453,6 @@ end:
     outb(0x20, 0x20);
 }
 
-__attribute__((interrupt)) static void timer_handler(
-    struct interrupt_frame *frame) {
-    // u64 tsc = __builtin_ia32_rdtsc();
-    // puts("timer: ");
-    // putu(tsc * 5 / 11 / 1000000);
-    // putc('\n');
-
-    outb(0x20, 0x20);
-}
-
 static u8 *local_apic_address;
 
 static void init_apic(void) {
@@ -510,17 +495,103 @@ static void init(u8 const *const mbi) {
     }
 }
 
+struct registers {
+    u64 rax;
+    u64 rbx;
+    u64 rcx;
+    u64 rdx;
+    u64 rsi;
+    u64 rdi;
+    u64 rbp;
+    u64 rsp;
+    u64 r8;
+    u64 r9;
+    u64 r10;
+    u64 r11;
+    u64 r12;
+    u64 r13;
+    u64 r14;
+    u64 r15;
+
+    u64 rip;
+    u64 rflags;
+};
+
+struct thread {
+    struct registers registers;
+
+    u64 wake_at;
+};
+
+struct thread threads[2];
+
+struct thread *current_thread;
+
+__attribute__((noreturn)) void launch(struct thread *p);
+
+__attribute__((noreturn)) void scheduler(void) {
+    u64 now = __builtin_ia32_rdtsc();
+
+    for (u32 i = 0; i < 2; ++i) {
+        if (threads[i].wake_at < now) {
+            launch(&threads[i]);
+        }
+    }
+
+    // no thread to run
+    current_thread = 0;
+    sti();
+    for (;;) hlt();
+}
+
+void syscall_landpad();
+void timer_landpad();
+
+__attribute__((noreturn)) void syscall_handler(void) {
+    current_thread->wake_at = current_thread->registers.rdi;
+    scheduler();
+}
+
+static void my_kthread1(void) {
+    u64 now = __builtin_ia32_rdtsc();
+    for (;;) {
+        // TODO: calling puts() in a kthread is a race condition
+        puts("kthread1: ");
+        putu(__builtin_ia32_rdtsc() * 5 / 11 / 1000000);
+        puts(" ms\n");
+        now += 2200000000;
+        syscall(now);
+    }
+}
+
+static void my_kthread2(void) {
+    u64 now = __builtin_ia32_rdtsc();
+    for (;;) {
+        puts("kthread2: ");
+        putu(__builtin_ia32_rdtsc() * 5 / 11 / 1000000);
+        puts(" ms\n");
+        now += 3300000000;
+        syscall(now);
+    }
+}
+
+static char kthread_stack1[4096];
+static char kthread_stack2[4096];
+
 __attribute__((noreturn)) void kmain(u8 const *const p) {
     init(p);
 
-    print_multiboot_info(p);
+    // print_multiboot_info(p);
 
-    // for (u32 i = 0; i < 256; ++i) set_idt(&idt[i], nop_handler);
-    set_idt(&idt[8], timer_handler);
-    set_idt(&idt[9], keyboard_interrupt_handler);
+    set_idt(&idt[0x08], timer_landpad);
+    set_idt(&idt[0x09], keyboard_interrupt_handler);
+    set_idt(&idt[0x80], syscall_landpad);
 
     lidt(idt, sizeof(idt));
-    sti();
 
-    for (;;) hlt();
+    threads[0].registers.rip = (u64)&my_kthread1;
+    threads[0].registers.rsp = (u64)&kthread_stack1[4096];
+    threads[1].registers.rip = (u64)&my_kthread2;
+    threads[1].registers.rsp = (u64)&kthread_stack2[4096];
+    scheduler();
 }

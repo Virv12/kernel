@@ -137,6 +137,107 @@ error:
 
 bits 64
 
+extern current_thread
+extern syscall_handler
+extern scheduler
+
+global syscall_landpad
+syscall_landpad:
+    push rdx
+    mov rdx, [current_thread]
+
+    mov [rdx + 0x00], rax
+    mov [rdx + 0x08], rbx
+    mov [rdx + 0x10], rcx
+    pop rax
+    mov [rdx + 0x18], rax       ; rdx
+    mov [rdx + 0x20], rsi
+    mov [rdx + 0x28], rdi
+    mov [rdx + 0x30], rbp
+    mov rax, [rsp + 0x18]
+    mov [rdx + 0x38], rax       ; rsp
+    mov [rdx + 0x40], r8
+    mov [rdx + 0x48], r9
+    mov [rdx + 0x50], r10
+    mov [rdx + 0x58], r11
+    mov [rdx + 0x60], r12
+    mov [rdx + 0x68], r13
+    mov [rdx + 0x70], r14
+    mov [rdx + 0x78], r15
+    mov rax, [rsp + 0x00]
+    mov [rdx + 0x80], rax       ; rip
+    mov rax, [rsp + 0x10]
+    mov [rdx + 0x88], rax       ; rflags
+
+    lea rsp, [stack.end]
+    jmp syscall_handler
+
+global timer_landpad
+timer_landpad:
+    push rdx
+    mov rdx, [current_thread]
+
+    test rdx, rdx
+    jz .no_process
+
+    mov [rdx + 0x00], rax
+    mov [rdx + 0x08], rbx
+    mov [rdx + 0x10], rcx
+    pop qword [rdx + 0x18]      ; rdx
+    mov [rdx + 0x20], rsi
+    mov [rdx + 0x28], rdi
+    mov [rdx + 0x30], rbp
+    mov rax, [rsp + 0x18]
+    mov [rdx + 0x38], rax       ; rsp
+    mov [rdx + 0x40], r8
+    mov [rdx + 0x48], r9
+    mov [rdx + 0x50], r10
+    mov [rdx + 0x58], r11
+    mov [rdx + 0x60], r12
+    mov [rdx + 0x68], r13
+    mov [rdx + 0x70], r14
+    mov [rdx + 0x78], r15
+    mov rax, [rsp + 0x00]
+    mov [rdx + 0x80], rax       ; rip
+    mov rax, [rsp + 0x10]
+    mov [rdx + 0x88], rax       ; rflags
+
+.no_process:
+    mov al, 0x20
+    out 0x20, al
+
+    lea rsp, [stack.end]
+    jmp scheduler
+
+global launch
+launch:
+    mov [current_thread], rdi
+
+    push qword GDT.data         ; ss
+    push qword [rdi + 0x38]     ; rsp
+    push qword [rdi + 0x88]     ; rflags
+    push qword GDT.code         ; cs
+    push qword [rdi + 0x80]     ; rip
+
+    mov r15, [rdi + 0x78]
+    mov r14, [rdi + 0x70]
+    mov r13, [rdi + 0x68]
+    mov r12, [rdi + 0x60]
+    mov r11, [rdi + 0x58]
+    mov r10, [rdi + 0x50]
+    mov r9, [rdi + 0x48]
+    mov r8, [rdi + 0x40]
+    mov rbp, [rdi + 0x30]
+    push qword [rdi + 0x28]     ; rdi
+    mov rsi, [rdi + 0x20]
+    mov rdx, [rdi + 0x18]
+    mov rcx, [rdi + 0x10]
+    mov rbx, [rdi + 0x08]
+    mov rax, [rdi + 0x00]
+    pop rdi
+
+    iretq
+
 section .rodata
 
 ; Access bits
@@ -156,20 +257,20 @@ GDT:
 .null: equ $ - GDT
     dq 0
 .code: equ $ - GDT
-    dd 0xFFFF                                   ; Limit & Base (low, bits 0-15)
+    dd 0                                        ; Limit & Base (low, bits 0-15)
     db 0                                        ; Base (mid, bits 16-23)
     db PRESENT | NOT_SYS | EXEC | RW            ; Access
     db GRAN_4K | LONG_MODE | 0xF                ; Flags & Limit (high, bits 16-19)
     db 0                                        ; Base (high, bits 24-31)
 .data: equ $ - GDT
-    dd 0xFFFF                                   ; Limit & Base (low, bits 0-15)
+    dd 0                                        ; Limit & Base (low, bits 0-15)
     db 0                                        ; Base (mid, bits 16-23)
     db PRESENT | NOT_SYS | RW                   ; Access
     db GRAN_4K | SZ_32 | 0xF                    ; Flags & Limit (high, bits 16-19)
     db 0                                        ; Base (high, bits 24-31)
-.TSS: equ $ - GDT
-    dd 0x00000068
-    dd 0x00CF8900
+;.TSS: equ $ - GDT
+;    dd 0x00000068
+;    dd 0x00CF8900
 .hdr:
     dw $ - GDT - 1
     dq GDT
