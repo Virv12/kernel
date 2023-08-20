@@ -32,8 +32,4 @@ inline void cli(void) {
     __asm("cli");
 }
 
-inline void syscall(u64 rdi) {
-    __asm("int $0x80" : : "D"(rdi));
-}
-
 #endif
