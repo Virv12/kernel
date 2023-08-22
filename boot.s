@@ -138,6 +138,7 @@ error:
 bits 64
 
 extern current_thread
+extern local_apic_address
 extern scheduler
 
 global timer_landpad
@@ -171,8 +172,13 @@ timer_landpad:
     mov [rdx + 0x88], rax       ; rflags
 
 .no_thread:
+    ; PIC EOI
     mov al, 0x20
     out 0x20, al
+
+    ; APIC EOI
+    mov rdx, [local_apic_address]
+    mov dword [rdx + 0xB0], 0
 
     lea rsp, [stack.end]
     jmp scheduler

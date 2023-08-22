@@ -32,4 +32,16 @@ inline void cli(void) {
     __asm("cli");
 }
 
+inline u64 rdmsr(u32 msr) {
+    u32 low, high;
+    __asm("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
+    return ((u64)high << 32) | low;
+}
+
+inline void wrmsr(u32 msr, u64 value) {
+    u32 low = value & 0xffffffff;
+    u32 high = value >> 32;
+    __asm("wrmsr" : : "a"(low), "d"(high), "c"(msr));
+}
+
 #endif

@@ -1,3 +1,4 @@
+#include <cpuid.h>
 #include <sys/io.h>
 
 #include "screen.h"
@@ -453,12 +454,15 @@ end:
     outb(0x20, 0x20);
 }
 
-static u8 *local_apic_address;
+u8 *local_apic_address;
 
 static void init_apic(void) {
-    // reset apic timer
-    *(u32 *)(local_apic_address + 0x380) = 0x10000;
-    *(u32 *)(local_apic_address + 0x320) = 0x10020;
+    u64 apic_base_msr = rdmsr(0x1B);
+    puts("apic_base_msr: ");
+    putx(apic_base_msr);
+    putc('\n');
+
+    *(u32 *)(local_apic_address + 0x320) = 0x40020;  // tsc-deadline mode
 }
 
 static void init_acpi(struct rsdt_header const *rsdt) {
@@ -532,21 +536,35 @@ __attribute__((noreturn)) void launch(struct thread *p);
 __attribute__((noreturn)) void scheduler(void) {
     u64 now = __builtin_ia32_rdtsc();
 
+    puts("[sched] ");
+    putu(now * 5 / 11 / 1000000);
+    puts(" ms\n");
+
     if (current_thread && current_thread->wake_at < now) {
         current_thread->wake_at = now;
     }
 
     u32 min = 0;
+    u32 min2 = 0;
     for (u32 i = 1; i < 2; ++i) {
         if (threads[i].wake_at <= threads[min].wake_at) {
+            min2 = min;
             min = i;
+        } else if (threads[i].wake_at <= threads[min2].wake_at) {
+            min2 = i;
         }
     }
 
     if (threads[min].wake_at <= now) {
-        // threads[min].wake_at = now;
+        u64 timer_at = threads[min2].wake_at;
+        if (timer_at <= now) timer_at = now + 22000000;
+        wrmsr(0x6E0, timer_at);
+
         launch(&threads[min]);
     }
+
+    // set apic timer to fire at threads[min].wake_at
+    wrmsr(0x6E0, threads[min].wake_at);
 
     // no thread to run
     current_thread = 0;
@@ -567,11 +585,12 @@ static void my_kthread1(void) {
     u64 now = 0;
     for (;;) {
         // TODO: calling puts() in a kthread is a race condition
+        u64 woken_at = __builtin_ia32_rdtsc();
         puts("[kthread1] ");
-        putu(__builtin_ia32_rdtsc() * 5 / 11 / 1000000);
+        putu(woken_at * 5 / 11 / 1000000);
         puts(" ms\n");
 
-        now += 2200000000ll;
+        now += 2200000000;
         current_thread->wake_at = now;
         scheduler_trampoline();
     }
@@ -595,15 +614,26 @@ static void my_kthread2(void) {
 static char kthread_stack1[4096];
 static char kthread_stack2[4096];
 
+__attribute__((interrupt)) static void nop_handler(
+    struct interrupt_frame *frame) {
+    outb(0x20, 0x20);
+}
+
 __attribute__((noreturn)) void kmain(u8 const *const p) {
     init(p);
 
     // print_multiboot_info(p);
 
-    set_idt(&idt[0x08], timer_landpad);
+    set_idt(&idt[0x08], nop_handler);
     set_idt(&idt[0x09], keyboard_interrupt_handler);
+    set_idt(&idt[0x20], timer_landpad);
+    set_idt(&idt[0x21], keyboard_interrupt_handler);
 
     lidt(idt, sizeof(idt));
+
+    // disable pic
+    // outb(0xff, 0xa1);
+    // outb(0xff, 0x21);
 
     threads[0].registers.rip = (u64)&my_kthread1;
     threads[0].registers.rsp = (u64)&kthread_stack1[4096];
