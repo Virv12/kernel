@@ -527,7 +527,7 @@ struct thread {
     u64 wake_at;
 };
 
-struct thread threads[2];
+struct thread threads[3];
 
 struct thread *current_thread;
 
@@ -536,9 +536,9 @@ __attribute__((noreturn)) void launch(struct thread *p);
 __attribute__((noreturn)) void scheduler(void) {
     u64 now = __builtin_ia32_rdtsc();
 
-    puts("[sched] ");
-    putu(now * 5 / 11 / 1000000);
-    puts(" ms\n");
+    // puts("[sched] ");
+    // putu(now * 5 / 11 / 1000000);
+    // puts(" ms\n");
 
     if (current_thread && current_thread->wake_at < now) {
         current_thread->wake_at = now;
@@ -546,7 +546,7 @@ __attribute__((noreturn)) void scheduler(void) {
 
     u32 min = 0;
     u32 min2 = 0;
-    for (u32 i = 1; i < 2; ++i) {
+    for (u32 i = 1; i < 3; ++i) {
         if (threads[i].wake_at <= threads[min].wake_at) {
             min2 = min;
             min = i;
@@ -601,11 +601,72 @@ static u64 fib(u64 n) {
     return fib(n - 1) + fib(n - 2);
 }
 
+struct mutex {
+    u64 locked;
+    struct thread *waiter;
+};
+
+static void mutex_lock(struct mutex *m) {
+    for (;;) {
+        cli();
+        if (!m->locked) break;
+        m->waiter = current_thread;
+        current_thread->wake_at = (u64)1 << 50;
+        scheduler_trampoline();
+    }
+    m->locked = 1;
+    sti();
+}
+
+static void mutex_unlock(struct mutex *m) {
+    cli();
+    m->locked = 0;
+    if (m->waiter) {
+        m->waiter->wake_at = __builtin_ia32_rdtsc();
+        m->waiter = 0;
+    }
+    sti();
+}
+
+static struct mutex m;
+
 static void my_kthread2(void) {
-    u64 f = fib(45);
-    puts("fib(45) = ");
+    mutex_lock(&m);
+
+    u64 start = __builtin_ia32_rdtsc();
+    u64 f = fib(42);
+    u64 end = __builtin_ia32_rdtsc();
+
+    mutex_unlock(&m);
+
+    puts("[kthread2] fib(42) = ");
     putu(f);
-    puts("\n");
+    puts(" [");
+    putu(start * 5 / 11 / 1000000);
+    putc(' ');
+    putu(end * 5 / 11 / 1000000);
+    puts("]\n");
+
+    current_thread->wake_at = (u64)1 << 50;
+    scheduler_trampoline();
+}
+
+static void my_kthread3(void) {
+    mutex_lock(&m);
+
+    u64 start = __builtin_ia32_rdtsc();
+    u64 f = fib(42);
+    u64 end = __builtin_ia32_rdtsc();
+
+    mutex_unlock(&m);
+
+    puts("[kthread3] fib(42) = ");
+    putu(f);
+    puts(" [");
+    putu(start * 5 / 11 / 1000000);
+    putc(' ');
+    putu(end * 5 / 11 / 1000000);
+    puts("]\n");
 
     current_thread->wake_at = (u64)1 << 50;
     scheduler_trampoline();
@@ -613,6 +674,7 @@ static void my_kthread2(void) {
 
 static char kthread_stack1[4096];
 static char kthread_stack2[4096];
+static char kthread_stack3[4096];
 
 __attribute__((interrupt)) static void nop_handler(
     struct interrupt_frame *frame) {
@@ -641,5 +703,8 @@ __attribute__((noreturn)) void kmain(u8 const *const p) {
     threads[1].registers.rip = (u64)&my_kthread2;
     threads[1].registers.rsp = (u64)&kthread_stack2[4096];
     threads[1].registers.rflags = 0x200;
+    threads[2].registers.rip = (u64)&my_kthread3;
+    threads[2].registers.rsp = (u64)&kthread_stack3[4096];
+    threads[2].registers.rflags = 0x200;
     scheduler();
 }
