@@ -11,11 +11,11 @@ static u32 col;
 static u8 buf[32 << 10];
 
 static void update_cursor(void) {
-    u16 pos = (row - chosen_row) * WIDTH + col;
-    outb(0x0F, 0x03D4);
-    outb(pos & 0xFF, 0x03D5);
-    outb(0x0E, 0x03D4);
-    outb((pos >> 8) & 0xFF, 0x03D5);
+    if (chosen_row <= row && row < chosen_row + HEIGHT) {
+        set_cursor(row - chosen_row, col);
+    } else {
+        // TODO: hide cursor
+    }
 }
 
 static void set_chosen_row(u32 r) {
@@ -499,6 +499,7 @@ static void init(u8 const *const mbi) {
         }
         if (tag_type == 8) {
             init_screen(mbi + i + 8);
+            for (u32 i = 0; i < sizeof(buf); ++i) buf[i] = ' ';
             set_chosen_row(0);
         }
         if (tag_type == 14) {

@@ -33,12 +33,14 @@ entry_tag:
 .size: equ $ - entry_tag
 
 align 8
-flags_tag:
-    dw  4
+framebuffer_tag:
+    dw  5
     dw  0
     dd  .size
-    dd  3
-.size: equ $ - flags_tag
+    dd  0
+    dd  0
+    dd  0
+.size: equ $ - framebuffer_tag
 
 align 8
 terminating_tag:
