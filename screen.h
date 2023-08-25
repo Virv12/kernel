@@ -1,3 +1,4 @@
+#include "allocator.h"
 #include "util.h"
 
 struct framebuffer_info {
@@ -16,6 +17,7 @@ static u32 HEIGHT;
 
 static void init_screen(struct framebuffer_info const *p) {
     info = *p;
+    info.addr = virt_map(p->addr, p->pitch * p->height);
     WIDTH = info.width;
     HEIGHT = info.height;
 }

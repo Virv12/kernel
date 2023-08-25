@@ -141,32 +141,36 @@ _start:
     pop edi
     jmp GDT.code:_start64
 
+error:
+    hlt
+
 bits 64
 _start64:
     ; update stack
     lea rsp, [stack.end]
 
+    ; update gdt
+    lgdt [GDT.hdr64]
+
+    ; update rip
+    jmp continue64
+
+section .text
+
+continue64:
     ; update page tables
-    ; TODO: there is more to unmap but we need an allocator first
-    ; mov dword [PDPT], 0x0
+    mov dword [PDPT], 0x0
     mov dword [PDPT + 8], 0x0
     mov dword [PDPT + 16], 0x0
-    ; mov dword [PDPT + 24], 0x0
+    mov dword [PDPT + 24], 0x0
+
+    mov dword [PDPT], 0x0
 
     ; force a TLB flush
     mov rax, cr3
     mov cr3, rax
 
-    ; update gdt
-    lgdt [GDT.hdr64]
-
-    lea rax, [kmain]
     jmp kmain
-
-error:
-    hlt
-
-section .text
 
 extern current_thread
 extern local_apic_address
@@ -306,6 +310,9 @@ GDT:
     dq GDT
 
 section .bss
+
+extern PML4
+extern PDPT
 
 align 16
 stack: resb 4096

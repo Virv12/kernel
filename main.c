@@ -1,6 +1,7 @@
 #include <cpuid.h>
 #include <sys/io.h>
 
+#include "allocator.h"
 #include "screen.h"
 #include "util.h"
 
@@ -457,22 +458,21 @@ end:
 u8 *local_apic_address;
 
 static void init_apic(void) {
-    u64 apic_base_msr = rdmsr(0x1B);
-    puts("apic_base_msr: ");
-    putx(apic_base_msr);
-    putc('\n');
-
     *(u32 *)(local_apic_address + 0x320) = 0x40020;  // tsc-deadline mode
 }
 
 static void init_acpi(struct rsdt_header const *rsdt) {
     u32 count = (rsdt->sdt.Length - sizeof(*rsdt)) / 4;
     for (u32 j = 0; j < count; ++j) {
-        struct sdt_header const *sdt = (void *)(u64)rsdt->PointerToOtherSDT[j];
+        // TODO: how do I find the size?
+        struct sdt_header const *sdt =
+            virt_map((void *)(u64)rsdt->PointerToOtherSDT[j], 32 << 20);
 
         if (*(u32 *)&sdt->Signature == 0x43495041) {  // APIC
             struct madt_header const *q = (struct madt_header const *)sdt;
-            local_apic_address = (void *)(u64)q->LocalAPICAddress;
+            // TODO: how do I find the size?
+            local_apic_address =
+                virt_map((void *)(u64)q->LocalAPICAddress, 32 << 20);
             init_apic();
         }
     }
@@ -492,7 +492,9 @@ static void init(u8 const *const mbi) {
         }
         if (tag_type == 14) {
             u32 rsdt_address = *(u32 *)(mbi + i + 24);
-            struct rsdt_header const *rsdt = (void *)(u64)rsdt_address;
+            // TODO: how do I find the size?
+            struct rsdt_header const *rsdt =
+                virt_map((void *)(u64)rsdt_address, 32 << 20);
             init_acpi(rsdt);
         }
         i = (i + tag_size + 7) & (u32)(~7);
@@ -672,16 +674,15 @@ static void my_kthread3(void) {
     scheduler_trampoline();
 }
 
-static char kthread_stack1[4096];
-static char kthread_stack2[4096];
-static char kthread_stack3[4096];
-
 __attribute__((interrupt)) static void nop_handler(
     struct interrupt_frame *frame) {
     outb(0x20, 0x20);
 }
 
-__attribute__((noreturn)) void kmain(u8 const *const p) {
+__attribute__((noreturn)) void kmain(u8 const *p) {
+    // TODO: how do I find the size?
+    p = virt_map(p, 32 << 20);
+
     init(p);
 
     // print_multiboot_info(p);
@@ -698,13 +699,14 @@ __attribute__((noreturn)) void kmain(u8 const *const p) {
     // outb(0xff, 0x21);
 
     threads[0].registers.rip = (u64)&my_kthread1;
-    threads[0].registers.rsp = (u64)&kthread_stack1[4096];
+    threads[0].registers.rsp = (u64)alloc_page() + 0x1000;
     threads[0].registers.rflags = 0x200;
     threads[1].registers.rip = (u64)&my_kthread2;
-    threads[1].registers.rsp = (u64)&kthread_stack2[4096];
+    threads[1].registers.rsp = (u64)alloc_page() + 0x1000;
     threads[1].registers.rflags = 0x200;
     threads[2].registers.rip = (u64)&my_kthread3;
-    threads[2].registers.rsp = (u64)&kthread_stack3[4096];
+    threads[2].registers.rsp = (u64)alloc_page() + 0x1000;
     threads[2].registers.rflags = 0x200;
+
     scheduler();
 }

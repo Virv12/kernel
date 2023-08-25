@@ -10,7 +10,7 @@ run: mykernel
 mykernel: boot.o main.o link.ld
 	gcc -m64 -mgeneral-regs-only -mno-red-zone -static -nostdlib -fno-pic -ffreestanding -fno-stack-protector -T link.ld -o $@ boot.o main.o -ggdb3
 
-main.o: main.c util.h screen.h
+main.o: main.c util.h screen.h allocator.h
 	gcc $(CFLAGS) -static -nostdlib -fno-pic -ffreestanding -fno-stack-protector -c -o $@ $< -ggdb3
 
 boot.o: boot.s
