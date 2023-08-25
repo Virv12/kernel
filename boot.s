@@ -1,3 +1,7 @@
+
+global kernel_offset
+kernel_offset equ 0xffffffff80000000
+
 section .multiboot
 
 extern _edata
@@ -17,8 +21,8 @@ address_tag:
     dd  .size
     dd  multiboot2_header
     dd  multiboot2_header
-    dd  _edata
-    dd  _ebss
+    dd  _edata - kernel_offset
+    dd  _ebss - kernel_offset
 .size: equ $ - address_tag
 
 align 8
@@ -45,17 +49,19 @@ terminating_tag:
 
 multiboot2_header.size: equ $ - multiboot2_header
 
-section .text
-extern kmain
+section .entry.text
 
 global _start
-align 16
+extern kmain
+
 bits 32
+align 16
 _start:
     ; setup stack
-    lea esp, [stack.end]
+    lea esp, [stack.end - kernel_offset]
 
     ; save multiboot info
+    ; TODO: we don't use ebx
     push ebx
 
     ; check multiboot magic
@@ -100,18 +106,21 @@ _start:
     or eax, 1 << 8
     wrmsr
 
-    ; enable TLB
-    lea eax, [PDPT]
+    ; prepare page tables
+    lea eax, [PDPT - kernel_offset]
     or eax, 3
-    mov [PML4], eax
+    mov [PML4 - kernel_offset], eax
+    mov [PML4 - kernel_offset + 4088], eax
 
-    ; identity mmap 1GB huge table
-    mov dword [PDPT], 0x83
-    mov dword [PDPT + 8], 0x40000083
-    mov dword [PDPT + 16], 0x80000083
-    mov dword [PDPT + 24], 0xC0000083
+    mov dword [PDPT - kernel_offset], 0x83
+    mov dword [PDPT - kernel_offset + 8], 0x40000083
+    mov dword [PDPT - kernel_offset + 16], 0x80000083
+    mov dword [PDPT - kernel_offset + 24], 0xC0000083
 
-    mov eax, PML4
+    mov dword [PDPT - kernel_offset + 4080], 0x83
+    mov dword [PDPT - kernel_offset + 4088], 0x40000083
+
+    lea eax, [PML4 - kernel_offset]
     mov cr3, eax
 
     ; enable paging
@@ -119,7 +128,7 @@ _start:
     or eax, 1 << 31
     mov cr0, eax
 
-    lgdt [GDT.hdr]
+    lgdt [GDT.hdr32 - kernel_offset]
 
     ; update segment registers
     mov ax, GDT.data
@@ -130,12 +139,34 @@ _start:
     mov ss, ax
 
     pop edi
-    jmp GDT.code:kmain
+    jmp GDT.code:_start64
+
+bits 64
+_start64:
+    ; update stack
+    lea rsp, [stack.end]
+
+    ; update page tables
+    ; TODO: there is more to unmap but we need an allocator first
+    ; mov dword [PDPT], 0x0
+    mov dword [PDPT + 8], 0x0
+    mov dword [PDPT + 16], 0x0
+    ; mov dword [PDPT + 24], 0x0
+
+    ; force a TLB flush
+    mov rax, cr3
+    mov cr3, rax
+
+    ; update gdt
+    lgdt [GDT.hdr64]
+
+    lea rax, [kmain]
+    jmp kmain
 
 error:
     hlt
 
-bits 64
+section .text
 
 extern current_thread
 extern local_apic_address
@@ -266,8 +297,12 @@ GDT:
 ;.TSS: equ $ - GDT
 ;    dd 0x00000068
 ;    dd 0x00CF8900
-.hdr:
-    dw $ - GDT - 1
+.size: equ $ - GDT
+.hdr32:
+    dw .size - 1
+    dd GDT - kernel_offset
+.hdr64:
+    dw .size - 1
     dq GDT
 
 section .bss

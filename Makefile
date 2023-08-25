@@ -1,4 +1,4 @@
-CFLAGS := -m64 -mgeneral-regs-only -mno-red-zone -Wall -Og
+CFLAGS := -m64 -mgeneral-regs-only -mno-red-zone -Wall -Og -mcmodel=kernel
 QEMU_FLAGS := -enable-kvm -cpu host -display gtk,zoom-to-fit=on -smp cores=2
 
 run_iso: myos.iso

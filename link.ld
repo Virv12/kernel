@@ -8,6 +8,10 @@ SECTIONS
     . = 0x100000;
 
     .multiboot : { *(.multiboot*) }
+    .entry.text : { *(.entry.text*) }
+
+    . += kernel_offset;
+
     .text      : { *(.text*) }
 
     .rodata    : { *(.rodata*) }
