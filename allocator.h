@@ -2,43 +2,22 @@
 
 #include "util.h"
 
-// TODO: this is the worst allocator ever
+void *virt_alloc(u64 len);
 
-extern void *PDPT[512];
+void *phys_alloc(u64 len);
 
-static u64 next_free_page = 510;
+void mem_map(void *phys, void *virt, u64 len);
 
-static void *virt_map(void const *addr, u64 len) {
-    u64 const page_size = 1 << 30;
-    u64 const page_bitmask = page_size - 1;
-
-    u64 start = (u64)addr & ~page_bitmask;
-    u64 end = ((u64)addr + len + page_bitmask) & ~page_bitmask;
-
-    u64 pages = (end - start) / page_size;
-
-    next_free_page -= pages;
-
-    for (u64 i = 0; i < pages; ++i) {
-        PDPT[next_free_page + i] = (void *)(start + i * page_size | 0x83);
-
-        // TODO: invlpg
-    }
-
-    return (void *)(((u64)addr - start) + next_free_page * page_size +
-                    (u64)0xffffff8000000000);
+inline void *virt_map(void *phys, u64 len) {
+    len = (len + 8191) & -8192;
+    void *virt = virt_alloc(len);
+    mem_map((void *)((u64)phys & -(u64)4096), virt, len);
+    return (u8 *)virt + (u64)phys % 4096;
 }
 
-static u8 *phys_free_page = 0;
-
-// TODO: we can allocate about 160 pages before we run out of space
-static void *phys_alloc_page(void) {
-    u8 *page = phys_free_page;
-    phys_free_page += 0x1000;
-    return page;
-}
-
-static void *alloc_page(void) {
-    void *page = phys_alloc_page();
-    return virt_map(page, 0x1000);
+inline void *mem_alloc(u64 len) {
+    void *phys = phys_alloc(len);
+    void *virt = virt_alloc(len);
+    mem_map(phys, virt, len);
+    return virt;
 }

@@ -458,6 +458,17 @@ end:
 u8 *local_apic_address;
 
 static void init_apic(void) {
+    u64 apic_base = rdmsr(0x1B);
+    if (!(apic_base & (1 << 11))) {
+        // TODO: x2apic not supported
+    }
+
+    u32 eax, ebx, ecx, edx;
+    int ret = __get_cpuid(0x1, &eax, &ebx, &ecx, &edx);
+    if (!ret || !(ecx & (1 << 24))) {
+        // TODO: tsc-deadline not supported
+    }
+
     *(u32 *)(local_apic_address + 0x320) = 0x40020;  // tsc-deadline mode
 }
 
@@ -549,10 +560,10 @@ __attribute__((noreturn)) void scheduler(void) {
     u32 min = 0;
     u32 min2 = 0;
     for (u32 i = 1; i < 3; ++i) {
-        if (threads[i].wake_at <= threads[min].wake_at) {
+        if (threads[i].wake_at < threads[min].wake_at) {
             min2 = min;
             min = i;
-        } else if (threads[i].wake_at <= threads[min2].wake_at) {
+        } else if (threads[i].wake_at < threads[min2].wake_at) {
             min2 = i;
         }
     }
@@ -589,8 +600,8 @@ static void my_kthread1(void) {
         // TODO: calling puts() in a kthread is a race condition
         u64 woken_at = __builtin_ia32_rdtsc();
         puts("[kthread1] ");
-        putu(woken_at * 5 / 11 / 1000000);
-        puts(" ms\n");
+        putu(woken_at * 5 / 11 / 1000);
+        puts(" us\n");
 
         now += 2200000000;
         current_thread->wake_at = now;
@@ -699,14 +710,13 @@ __attribute__((noreturn)) void kmain(u8 const *p) {
     // outb(0xff, 0x21);
 
     threads[0].registers.rip = (u64)&my_kthread1;
-    threads[0].registers.rsp = (u64)alloc_page() + 0x1000;
+    threads[0].registers.rsp = (u64)mem_alloc(0x1000) + 0x1000;
     threads[0].registers.rflags = 0x200;
     threads[1].registers.rip = (u64)&my_kthread2;
-    threads[1].registers.rsp = (u64)alloc_page() + 0x1000;
+    threads[1].registers.rsp = (u64)mem_alloc(0x1000) + 0x1000;
     threads[1].registers.rflags = 0x200;
     threads[2].registers.rip = (u64)&my_kthread3;
-    threads[2].registers.rsp = (u64)alloc_page() + 0x1000;
+    threads[2].registers.rsp = (u64)mem_alloc(0x1000) + 0x1000;
     threads[2].registers.rflags = 0x200;
-
     scheduler();
 }

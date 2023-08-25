@@ -1,4 +1,3 @@
-
 global kernel_offset
 kernel_offset equ 0xffffffff80000000
 
@@ -164,7 +163,12 @@ continue64:
     mov dword [PDPT + 16], 0x0
     mov dword [PDPT + 24], 0x0
 
-    mov dword [PDPT], 0x0
+    mov dword [PML4], 0x0
+
+    ; recursive mapping
+    lea rax, [PML4 - kernel_offset]
+    or rax, 0x03
+    mov dword [PML4 + 2048], eax
 
     ; force a TLB flush
     mov rax, cr3

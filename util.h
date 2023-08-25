@@ -44,4 +44,7 @@ inline void wrmsr(u32 msr, u64 value) {
     __asm("wrmsr" : : "a"(low), "d"(high), "c"(msr));
 }
 
+#define max(a, b) ((a) > (b) ? (a) : (b))
+#define min(a, b) ((b) > (a) ? (a) : (b))
+
 #endif
