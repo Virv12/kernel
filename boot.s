@@ -226,12 +226,14 @@ timer_landpad:
 
 global scheduler_trampoline
 scheduler_trampoline:
+    pushfq
+    cli
+
     mov rdi, [current_thread]
 
     ; we don't need to save caller-saved registers
+    pop qword [rdi + 0x88]      ; rflags
     pop qword [rdi + 0x80]      ; rip
-    pushfq                      ; rflags
-    pop qword [rdi + 0x88]
 
     mov [rdi + 0x08], rbx
     mov [rdi + 0x30], rbp

@@ -590,11 +590,6 @@ void timer_landpad();
 
 void scheduler_trampoline(void);
 
-__attribute__((noreturn)) void syscall_handler(void) {
-    current_thread->wake_at = current_thread->registers.rdi;
-    scheduler();
-}
-
 static void my_kthread1(void) {
     u64 now = 0;
     for (;;) {
