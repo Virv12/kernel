@@ -1,26 +1,26 @@
-CFLAGS := -m64 -mgeneral-regs-only -mno-red-zone -Og -mcmodel=kernel
-QEMU_FLAGS := -enable-kvm -cpu host -display gtk,zoom-to-fit=on -smp cores=2
+CFLAGS := -m64 -mgeneral-regs-only -mno-red-zone -Og -mcmodel=kernel -ffunction-sections -fdata-sections -fno-pic -ffreestanding -fno-stack-protector -ggdb3
+LDFLAGS := --gc-sections
+QEMUFLAGS := -enable-kvm -cpu host -display gtk,zoom-to-fit=on -smp cores=2
 
-run_iso: myos.iso
-	# qemu-system-x86_64 $(QEMU_FLAGS) -cdrom myos.iso
-	qemu-system-x86_64 $(QEMU_FLAGS) -drive if=pflash,format=raw,readonly=on,file=/usr/share/edk2-ovmf/x64/OVMF_CODE.fd -cdrom myos.iso
+OBJS := boot.o main.o allocator.o util.o font.o
 
-run: mykernel
-	qemu-system-x86_64 $(QEMU_FLAGS) -kernel mykernel
+run_bios: myos.iso
+	qemu-system-x86_64 $(QEMUFLAGS) -cdrom myos.iso
 
-mykernel: boot.o main.o allocator.o util.o font.o link.ld
-	gcc -m64 -mgeneral-regs-only -mno-red-zone -static -nostdlib -fno-pic -ffreestanding -fno-stack-protector -T link.ld -o $@ boot.o main.o allocator.o util.o font.o -ggdb3
+run_uefi: myos.iso
+	qemu-system-x86_64 $(QEMUFLAGS) -drive if=pflash,format=raw,readonly=on,file=/usr/share/edk2-ovmf/x64/OVMF_CODE.fd -cdrom myos.iso
 
-main.o: main.c util.h screen.h allocator.h
-	gcc $(CFLAGS) -static -nostdlib -fno-pic -ffreestanding -fno-stack-protector -c -o $@ $< -ggdb3
+mykernel: $(OBJS) link.ld
+	ld $(LDFLAGS) -T link.ld -o $@ $(OBJS)
 
-allocator.o: allocator.c allocator.h util.h
-	gcc $(CFLAGS) -static -nostdlib -fno-pic -ffreestanding -fno-stack-protector -c -o $@ $< -ggdb3
+main.o: util.h screen.h allocator.h
+allocator.o: allocator.h util.h
+util.o: util.h
 
-util.o: util.c util.h
-	gcc $(CFLAGS) -static -nostdlib -fno-pic -ffreestanding -fno-stack-protector -c -o $@ $< -ggdb3
+%.o: %.c
+	gcc $(CFLAGS) -c -o $@ $<
 
-boot.o: boot.s
+%.o: %.s
 	nasm -f elf64 -o $@ $<
 
 font.o: font.bmp
@@ -33,6 +33,6 @@ myos.iso: mykernel grub.cfg
 	grub-mkrescue -o $@ iso
 
 clean:
-	rm -rf mykernel *.o iso myos.iso
+	rm -rf *.o mykernel iso myos.iso
 
 .PHONY: run clean

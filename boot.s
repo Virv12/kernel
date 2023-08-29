@@ -50,7 +50,7 @@ terminating_tag:
 
 multiboot2_header.size: equ $ - multiboot2_header
 
-section .entry.text
+section .entry.text exec
 
 global _start
 extern kmain

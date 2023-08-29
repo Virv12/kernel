@@ -7,7 +7,7 @@ SECTIONS
 {
     . = 0x100000;
 
-    .multiboot : { *(.multiboot*) }
+    .multiboot : { KEEP(*(.multiboot*)) }
     .entry.text : { *(.entry.text*) }
 
     . += kernel_offset;
